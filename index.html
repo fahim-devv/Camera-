@@ -32,7 +32,7 @@
     <div id="user-section" class="container hidden">
         <h2>Camera Control</h2>
         <p>Logged in as: <span id="user-email" style="font-weight: bold;"></span></p>
-        <video id="video" autoplay playsinline></video>
+        <video id="video" autoplay playsinline muted></video>
         <div>
             <button class="btn-camera" id="btn-toggle-cam">Start Camera</button>
             <button class="btn-capture" id="btn-capture">Capture & Upload</button>
@@ -47,7 +47,7 @@
         <div class="gallery" id="admin-gallery"></div>
     </div>
 
-    <!-- Firebase SDK Modules -->
+    <!-- Firebase SDK Modules and Application Logic -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
         import { getAuth, signInWithRedirect, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
@@ -85,7 +85,7 @@
         let localStream = null;
         const adminEmail = "fahimdevvofficial@gmail.com";
 
-        // Google Sign-In Trigger using Redirect Method for Better Mobile Support
+        // Google Sign-In Trigger using Redirect Method
         googleLoginBtn.addEventListener('click', () => {
             signInWithRedirect(auth, provider).catch(error => alert("Login Failed: " + error.message));
         });
@@ -110,14 +110,35 @@
             }
         });
 
-        // Camera Logic
+        // Updated Mobile-Friendly Camera Logic
         async function startCamera() {
+            if (localStream) {
+                stopCamera();
+            }
+
+            // Constraints optimized for mobile front camera
+            const constraints = {
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                },
+                audio: false
+            };
+
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = localStream;
+                
+                // Extra check for older mobile browsers to ensure video plays
+                video.onloadedmetadata = () => {
+                    video.play().catch(e => console.error("Video play failed:", e));
+                };
+                
                 toggleCamBtn.textContent = "Stop Camera";
             } catch (err) {
-                alert("Camera access denied or unavailable.");
+                console.error("Camera Error: ", err);
+                alert("Camera access failed! Error: " + err.name + ". Please ensure site settings allow camera access.");
             }
         }
 
@@ -141,6 +162,11 @@
                 return;
             }
             const context = canvas.getContext('2d');
+            
+            // Sync canvas dimensions with actual video stream size
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             const photoDataUrl = canvas.toDataURL('image/jpeg', 0.6); 
 
@@ -181,4 +207,5 @@
         }
     </script>
 </body>
-</html>
+    </html>
+    
