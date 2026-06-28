@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Control & Admin Panel</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 600px; width: 100%; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; }
+        button { padding: 12px 24px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 10px; transition: 0.2s; }
+        .btn-login { background: #4285F4; color: white; }
+        .btn-camera { background: #28a745; color: white; }
+        .btn-capture { background: #dc3545; color: white; }
+        .hidden { display: none !important; }
+        video { width: 100%; max-width: 500px; border-radius: 8px; background: #000; transform: scaleX(-1); margin-top: 15px; }
+        canvas { display: none; }
+        .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 20px; }
+        .gallery img { width: 100%; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .admin-section { width: 100%; max-width: 800px; margin-top: 20px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <div id="login-section" class="container">
+        <h2>Welcome to WebCam App</h2>
+        <p>Please sign in with your Google account to continue.</p>
+        <button class="btn-login" id="btn-google-login">Sign in with Google</button>
+    </div>
+
+    <div id="user-section" class="container hidden">
+        <h2>Camera Control</h2>
+        <p>Logged in as: <span id="user-email" style="font-weight: bold;"></span></p>
+        <video id="video" autoplay playsinline></video>
+        <div>
+            <button class="btn-camera" id="btn-toggle-cam">Start Camera</button>
+            <button class="btn-capture" id="btn-capture">Capture & Upload</button>
+        </div>
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+
+    <div id="admin-section" class="admin-section hidden">
+        <h2>Admin Dashboard (Master Gallery)</h2>
+        <p>Hello Admin! Below are all the photos captured by users globally:</p>
+        <div class="gallery" id="admin-gallery"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        // Your Configured Keys
+        const firebaseConfig = {
+            apiKey: "AIzaSyAA3uP9FEv6MyYk0DSDUa2mbgAxVRrp8mU",
+            authDomain: "my-camera-project-11fec.firebaseapp.com",
+            projectId: "my-camera-project-11fec",
+            storageBucket: "my-camera-project-11fec.firebasestorage.app",
+            messagingSenderId: "67765680515",
+            appId: "1:67765680515:web:0eed555ae7f0456243deb6",
+            measurementId: "G-EYNFHTGSM2"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        // DOM Elements
+        const loginSection = document.getElementById('login-section');
+        const userSection = document.getElementById('user-section');
+        const adminSection = document.getElementById('admin-section');
+        const googleLoginBtn = document.getElementById('btn-google-login');
+        const toggleCamBtn = document.getElementById('btn-toggle-cam');
+        const captureBtn = document.getElementById('btn-capture');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const userEmailSpan = document.getElementById('user-email');
+        const adminGallery = document.getElementById('admin-gallery');
+
+        let localStream = null;
+        const adminEmail = "fahimdevvofficial@gmail.com";
+
+        // Google Sign-In Trigger
+        googleLoginBtn.addEventListener('click', () => {
+            signInWithPopup(auth, provider).catch(error => alert("Login Failed: " + error.message));
+        });
+
+        // Track Authentication State
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loginSection.classList.add('hidden');
+                userSection.classList.remove('hidden');
+                userEmailSpan.textContent = user.email;
+
+                // Check Admin Access
+                if (user.email === adminEmail) {
+                    alert("Welcome Admin! You have access to all captured photos.");
+                    adminSection.classList.remove('hidden');
+                    listenForPhotos(); 
+                }
+            } else {
+                loginSection.classList.remove('hidden');
+                userSection.classList.add('hidden');
+                adminSection.classList.add('hidden');
+            }
+        });
+
+        // Camera Logic
+        async function startCamera() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = localStream;
+                toggleCamBtn.textContent = "Stop Camera";
+            } catch (err) {
+                alert("Camera access denied or unavailable.");
+            }
+        }
+
+        function stopCamera() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                toggleCamBtn.textContent = "Start Camera";
+                localStream = null;
+            }
+        }
+
+        toggleCamBtn.addEventListener('click', () => {
+            if (localStream) stopCamera(); else startCamera();
+        });
+
+        // Capture & Upload
+        captureBtn.addEventListener('click', async () => {
+            if (!localStream) {
+                alert("Please start the camera first!");
+                return;
+            }
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const photoDataUrl = canvas.toDataURL('image/jpeg', 0.6); 
+
+            try {
+                await addDoc(collection(db, "photos"), {
+                    user: auth.currentUser.email,
+                    photo: photoDataUrl,
+                    timestamp: new Date()
+                });
+                alert("Photo uploaded successfully!");
+            } catch (e) {
+                console.error("Error saving photo: ", e);
+                alert("Database error! Make sure Firestore is in Test Mode.");
+            }
+        });
+
+        // Real-time Dashboard for Admin
+        function listenForPhotos() {
+            const q = query(collection(db, "photos"), orderBy("timestamp", "desc"));
+            onSnapshot(q, (snapshot) => {
+                adminGallery.innerHTML = ""; 
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const imgWrapper = document.createElement('div');
+                    const img = document.createElement('img');
+                    const label = document.createElement('p');
+                    
+                    img.src = data.photo;
+                    label.textContent = `By: ${data.user}`;
+                    label.style.fontSize = "12px";
+                    label.style.margin = "5px 0";
+
+                    imgWrapper.appendChild(img);
+                    imgWrapper.appendChild(label);
+                    adminGallery.appendChild(imgWrapper);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
